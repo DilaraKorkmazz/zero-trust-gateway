@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  gateway:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SECRET_KEY=supersecretjwtkey_do_not_use_in_prod
+      - ALGORITHM=HS256
+    depends_on:
+      - redis
+      - internal-service
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  internal-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.mock
+    expose:
+      - "8001"
