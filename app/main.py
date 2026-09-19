@@ -2,14 +2,18 @@ import time
 import json
 import logging
 import httpx
-from fastapi import FastAPI, Request, Depends
+from fastapi import FastAPI, Request, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from app.security import require_role
 from app.rate_limiter import check_rate_limit
 
-app = FastAPI(title="Zero-Trust API Gateway")
-
-logging.basicConfig(level=logging.INFO)
 audit_logger = logging.getLogger("audit")
+audit_logger.setLevel(logging.INFO)
+handler = logging.FileHandler("audit.log")
+handler.setFormatter(logging.Formatter("%(asctime)s - %(message)s"))
+audit_logger.addHandler(handler)
+
+app = FastAPI(title="Zero-Trust API Gateway")
 
 @app.middleware("http")
 async def gateway_middleware(request: Request, call_next):
@@ -19,11 +23,11 @@ async def gateway_middleware(request: Request, call_next):
     if not request.url.path.startswith("/public"):
         try:
             check_rate_limit(client_ip)
-        except Exception as exc:
+        except HTTPException as exc:
             audit_logger.warning(json.dumps({
-                "ip": client_ip, "path": request.url.path, "status": 429, "event": "RATE_LIMIT_BLOCKED"
+                "ip": client_ip, "path": request.url.path, "status": exc.status_code, "event": "RATE_LIMIT_BLOCKED"
             }))
-            raise exc
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
     response = await call_next(request)
     duration = round(time.time() - start_time, 4)
@@ -45,5 +49,5 @@ def health_check():
 @app.get("/api/v1/internal/admin-data")
 async def forward_admin_data(user: dict = Depends(require_role("admin"))):
     async with httpx.AsyncClient() as client:
-        res = await client.get("http://internal-service:8001/admin-stats")
+        res = await client.get("http://localhost:8001/admin-stats")
         return res.json()
