@@ -1,25 +1,21 @@
 import time
 import json
 import logging
-from fastapi import FastAPI, Request, Depends
 import httpx
-from app.rate_limiter import check_rate_limit
+from fastapi import FastAPI, Request, Depends
 from app.security import require_role
-
-audit_logger = logging.getLogger("audit")
-audit_logger.setLevel(logging.INFO)
-handler = logging.FileHandler("audit.log")
-handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
-audit_logger.addHandler(handler)
+from app.rate_limiter import check_rate_limit
 
 app = FastAPI(title="Zero-Trust API Gateway")
 
+logging.basicConfig(level=logging.INFO)
+audit_logger = logging.getLogger("audit")
+
 @app.middleware("http")
-async def audit_and_rate_limit_middleware(request: Request, call_next):
+async def gateway_middleware(request: Request, call_next):
     client_ip = request.client.host if request.client else "unknown"
     start_time = time.time()
-    
-    # Öffentliche Routen vom Rate Limiter ausnehmen
+
     if not request.url.path.startswith("/public"):
         try:
             check_rate_limit(client_ip)
@@ -28,10 +24,10 @@ async def audit_and_rate_limit_middleware(request: Request, call_next):
                 "ip": client_ip, "path": request.url.path, "status": 429, "event": "RATE_LIMIT_BLOCKED"
             }))
             raise exc
-            
+
     response = await call_next(request)
     duration = round(time.time() - start_time, 4)
-    
+
     log_entry = {
         "ip": client_ip,
         "method": request.method,
